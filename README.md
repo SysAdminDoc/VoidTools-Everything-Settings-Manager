@@ -1,0 +1,1 @@
+# VoidTools-Everything-Manager
