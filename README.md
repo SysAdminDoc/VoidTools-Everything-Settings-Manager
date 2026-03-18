@@ -6,6 +6,9 @@ A comprehensive PowerShell WPF GUI application for managing [Everything](https:/
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+
+![Screenshot](screenshot.png)
+
 ## Features
 
 ### Settings Management
