@@ -28,12 +28,6 @@ A comprehensive PowerShell WPF GUI application for managing [Everything](https:/
 - Real-time Everything process status indicator
 - Change tracking with modified count display
 
-## Screenshots
-
-*Settings Tab - Database category with impact badges*
-
-*CSV Editor Tab - Filter management with dark mode dropdowns*
-
 ## Installation
 
 No installation required. Simply download and run:
