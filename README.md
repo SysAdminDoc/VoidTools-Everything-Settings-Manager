@@ -1,3 +1,13 @@
+<!-- codex-branding:start -->
+<p align="center"><img src="icon.png" width="128" alt="Void Tools Everything Settings Manager"></p>
+
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-preview-58A6FF?style=for-the-badge">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-4ade80?style=for-the-badge">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-PowerShell-58A6FF?style=for-the-badge">
+</p>
+<!-- codex-branding:end -->
+
 # Everything Settings Manager
 
 A comprehensive PowerShell WPF GUI application for managing [Everything](https://www.voidtools.com/) search utility settings, with full support for INI configuration and CSV data editing.
