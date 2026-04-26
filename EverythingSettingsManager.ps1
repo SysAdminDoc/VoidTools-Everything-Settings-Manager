@@ -429,6 +429,15 @@ $xaml = @"
 $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($xaml))
 $window = [Windows.Markup.XamlReader]::Load($reader)
 
+# codex-branding:start
+                try {
+                    $brandingIconPath = Join-Path $PSScriptRoot 'icon.ico'
+                    if (Test-Path $brandingIconPath) {
+                        $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create((New-Object System.Uri($brandingIconPath)))
+                    }
+                } catch {
+                }
+                # codex-branding:end
 # Get UI elements
 $txtIniPath = $window.FindName("txtIniPath"); $txtStatus = $window.FindName("txtStatus"); $statusIndicator = $window.FindName("statusIndicator")
 $mainTabPanel = $window.FindName("mainTabPanel"); $settingsContent = $window.FindName("settingsContent"); $csvContent = $window.FindName("csvContent")
