@@ -10,7 +10,7 @@
 .AUTHOR
     Matt - Generated with Claude AI
 .VERSION
-    2.0.0
+    2.1.0
 #>
 
 [CmdletBinding()]
@@ -31,12 +31,16 @@ param(
     [string]$ExportAdmxPath,
     [string]$HealthReportPath,
     [switch]$TestIpc,
+    [ValidateSet('Automatic', 'Manual', 'Disabled')]
+    [string]$ServiceStartupType,
+    [switch]$StartService,
+    [switch]$StopService,
     [int]$ScheduleIntervalMinutes
 )
 
-$Script:AppVersion = '2.0.0'
+$Script:AppVersion = '2.1.0'
 $Script:CliRequested = $false
-if ($ApplyPreset -or $ExportBundlePath -or $ImportBundlePath -or $ExportSettingsPath -or $ExportAdmxPath -or $HealthReportPath -or $TestIpc -or $ScheduleIntervalMinutes -gt 0) {
+if ($ApplyPreset -or $ExportBundlePath -or $ImportBundlePath -or $ExportSettingsPath -or $ExportAdmxPath -or $HealthReportPath -or $TestIpc -or $ServiceStartupType -or $StartService -or $StopService -or $ScheduleIntervalMinutes -gt 0) {
     $Script:CliRequested = $true
     $NoGui = $true
 }
@@ -783,7 +787,7 @@ function Get-ExclusionSummary {
     $rows = @()
     foreach ($key in @('exclude_folders', 'exclude_files', 'include_only_folders')) {
         $raw = if ($Settings -and $Settings.ContainsKey($key)) { [string]$Settings[$key] } else { '' }
-        $items = @($raw -split '[;`r`n]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $items = @($raw -split '[;\r\n]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         $rows += [pscustomobject]@{ Key = $key; Count = $items.Count; Entries = $items; ExistingPaths = @($items | Where-Object { Test-Path -LiteralPath $_ }).Count }
     }
     return $rows
@@ -1034,6 +1038,7 @@ function Get-EverythingHealthReport {
         latestBackup = if ($backups.Count -gt 0) { $backups[0].FullName } else { $null }
         impact = Get-IndexImpactEstimate -Settings $settings
         exclusions = @(Get-ExclusionSummary -Settings $settings)
+        usnJournal = @(Get-UsnJournalStatus)
     }
 }
 
@@ -1052,9 +1057,9 @@ function Invoke-ApplyPresetCli {
             $backup = Backup-File -Path $path
             Write-IniFile -Path $path -Settings $settings
         } else { $backup = $null }
-        $result = [pscustomobject]@{ preset = $PresetName; iniPath = $path; changed = $changes.Count; backup = $backup; restarted = $false }
+        $result = [pscustomobject]@{ preset = $PresetName; iniPath = $path; changed = $changes.Count; backup = $backup; restarted = $false; ipc = $null }
     } finally {
-        if ($wasRunning -and $RestartEverything) { Start-Everything | Out-Null; $result.restarted = $true }
+        if ($wasRunning -and $RestartEverything) { Start-Everything | Out-Null; $result.restarted = $true; $result.ipc = Test-EverythingIpc }
     }
     if (-not $Quiet) { $result | ConvertTo-Json -Depth 8 | Write-Output }
     return $result
@@ -1072,10 +1077,13 @@ function Invoke-CliRequest {
     if ($ExportAdmxPath) { Export-EverythingAdmx -OutputPath $ExportAdmxPath | Write-Output }
     if ($HealthReportPath) {
         $report = Get-EverythingHealthReport -SelectedIniPath $IniPath
+        $reportDirectory = Split-Path -Parent $HealthReportPath
+        if ($reportDirectory -and -not (Test-Path -LiteralPath $reportDirectory)) { New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null }
         $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $HealthReportPath -Encoding UTF8
         if (-not $Silent) { $HealthReportPath | Write-Output }
     }
     if ($TestIpc) { Test-EverythingIpc | ConvertTo-Json -Depth 5 | Write-Output }
+    if ($ServiceStartupType) { Set-EverythingServiceMode -StartupType $ServiceStartupType -Start:$StartService -Stop:$StopService | ConvertTo-Json -Depth 5 | Write-Output }
     if ($ScheduleIntervalMinutes -gt 0) { Register-EverythingReapplyTask -IntervalMinutes $ScheduleIntervalMinutes | Write-Output }
 }
 
@@ -1087,12 +1095,30 @@ function Test-EverythingIpc {
     if (-not ('EverythingSettingsManager_NativeMethods' -as [type])) {
         Add-Type @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public static class EverythingSettingsManager_NativeMethods {
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
     [DllImport("user32.dll", SetLastError = true)]
     public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct COPYDATASTRUCT { public IntPtr dwData; public int cbData; public IntPtr lpData; }
+    public static bool SendCopyData(IntPtr hWnd, uint dataId, string payload) {
+        byte[] bytes = Encoding.Unicode.GetBytes((payload ?? "") + "\0");
+        IntPtr data = Marshal.AllocHGlobal(bytes.Length);
+        IntPtr cds = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(COPYDATASTRUCT)));
+        try {
+            Marshal.Copy(bytes, 0, data, bytes.Length);
+            COPYDATASTRUCT message = new COPYDATASTRUCT { dwData = (IntPtr)dataId, cbData = bytes.Length, lpData = data };
+            Marshal.StructureToPtr(message, cds, false);
+            IntPtr result;
+            return SendMessageTimeout(hWnd, 0x004A, IntPtr.Zero, cds, 2, 1000, out result) != IntPtr.Zero;
+        } finally {
+            Marshal.FreeHGlobal(cds);
+            Marshal.FreeHGlobal(data);
+        }
+    }
 }
 "@ -ErrorAction SilentlyContinue
     }
@@ -1118,6 +1144,21 @@ public static class EverythingSettingsManager_NativeMethods {
         ProcessIds = @($processes | Select-Object -ExpandProperty Id)
         Message = if ($responsive) { 'Everything responded to the non-mutating IPC probe.' } else { 'Everything is running but no responsive IPC window was found.' }
     }
+}
+
+function Send-EverythingIpcCopyData {
+    param(
+        [string]$Payload,
+        [uint32]$DataId = 0
+    )
+    if (-not $Payload) { throw 'An IPC payload is required.' }
+    $probe = Test-EverythingIpc
+    if (-not $probe.Responsive -or $probe.WindowHandle -eq '0x0') {
+        return [pscustomobject]@{ Sent = $false; Message = 'No responsive Everything IPC window was found.'; PayloadLength = $Payload.Length }
+    }
+    $handleValue = [Convert]::ToInt64($probe.WindowHandle.Substring(2), 16)
+    $sent = [EverythingSettingsManager_NativeMethods]::SendCopyData([IntPtr]$handleValue, $DataId, $Payload)
+    [pscustomobject]@{ Sent = $sent; Message = if ($sent) { 'WM_COPYDATA message delivered.' } else { 'WM_COPYDATA delivery timed out.' }; PayloadLength = $Payload.Length }
 }
 
 function Get-UsnJournalStatus {
@@ -1176,8 +1217,8 @@ function Get-CsvValidationIssues {
                 if (-not $row.PSObject.Properties[$column]) { continue }
                 $value = [string]$row.$column
                 if ($value -and $value -match '^(?i)https?://') {
-                    $uri = [System.Uri]::new($value)
-                    if (-not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http', 'https')) { $issues += [pscustomobject]@{ Row = $rowNumber; Column = $column; Message = 'Bookmark URL must be an absolute HTTP or HTTPS URL.' } }
+                    $uri = $null
+                    if (-not [System.Uri]::TryCreate($value, [System.UriKind]::Absolute, [ref]$uri) -or -not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http', 'https')) { $issues += [pscustomobject]@{ Row = $rowNumber; Column = $column; Message = 'Bookmark URL must be an absolute HTTP or HTTPS URL.' } }
                 }
             }
         }
@@ -1283,6 +1324,42 @@ function Read-CsvHistoryEntries {
         }
     }
     return $entries
+}
+
+function Invoke-CsvHistoryUndo {
+    param(
+        [string]$CsvPath,
+        [string]$HistoryPath = $Script:CsvHistoryPath
+    )
+    if (-not $CsvPath) { throw 'A CSV path is required.' }
+    $entries = @(Read-CsvHistoryEntries -Path $HistoryPath)
+    if ($entries.Count -eq 0) { return [pscustomobject]@{ Applied = $false; Message = 'No CSV history entries are available.' } }
+    $entry = $entries[-1]
+    $before = @($entry.before)
+    if ($before.Count -eq 0) { throw 'The last CSV history entry does not contain a restorable state.' }
+    if (Test-Path -LiteralPath $CsvPath) { Backup-File -Path $CsvPath | Out-Null }
+    $headers = @($before[0].PSObject.Properties.Name)
+    Write-CsvFile -Path $CsvPath -Data $before -Headers $headers
+    Add-CsvHistoryEntry -Path $HistoryPath -Operation 'undo' -Before @($entry.after) -After $before | Out-Null
+    [pscustomobject]@{ Applied = $true; Path = $CsvPath; Operation = 'undo'; RowCount = $before.Count }
+}
+
+function Invoke-CsvHistoryRedo {
+    param(
+        [string]$CsvPath,
+        [string]$HistoryPath = $Script:CsvHistoryPath
+    )
+    if (-not $CsvPath) { throw 'A CSV path is required.' }
+    $entries = @(Read-CsvHistoryEntries -Path $HistoryPath)
+    $undo = @($entries | Where-Object { $_.operation -eq 'undo' }) | Select-Object -Last 1
+    if (-not $undo) { return [pscustomobject]@{ Applied = $false; Message = 'No undone CSV operation is available.' } }
+    $redoRows = @($undo.before)
+    if ($redoRows.Count -eq 0) { throw 'The undo entry does not contain a redo state.' }
+    if (Test-Path -LiteralPath $CsvPath) { Backup-File -Path $CsvPath | Out-Null }
+    $headers = @($redoRows[0].PSObject.Properties.Name)
+    Write-CsvFile -Path $CsvPath -Data $redoRows -Headers $headers
+    Add-CsvHistoryEntry -Path $HistoryPath -Operation 'redo' -Before @($undo.after) -After $redoRows | Out-Null
+    [pscustomobject]@{ Applied = $true; Path = $CsvPath; Operation = 'redo'; RowCount = $redoRows.Count }
 }
 
 function Sync-BookmarksJson {

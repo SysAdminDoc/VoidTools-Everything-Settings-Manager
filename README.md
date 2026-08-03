@@ -5,6 +5,7 @@ A comprehensive PowerShell WPF GUI application for managing [Everything](https:/
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-2.1.0-blue)
 
 ## Features
 
@@ -13,7 +14,7 @@ A comprehensive PowerShell WPF GUI application for managing [Everything](https:/
 - **13 categorized setting groups** with visual impact indicators (Critical, High, Medium)
 - **100+ configurable settings** with descriptions and recommended values
 - **One-click backup** before making changes
-- **Apply Recommended** button to quickly optimize settings
+- **Apply Preset** button to quickly apply Recommended, Safe, Privacy, Performance, or PowerUser settings
 
 ### CSV Editor
 - Edit **Filters**, **Bookmarks**, **Search History**, and **Run History**
@@ -27,6 +28,16 @@ A comprehensive PowerShell WPF GUI application for managing [Everything](https:/
 - Dual-tab interface (Settings | CSV Editor)
 - Real-time Everything process status indicator
 - Change tracking with modified count display
+- Preset bundles, factory-default diff view, keyword search, undo/redo, and dark/light/high-contrast themes
+- Installed, portable, service, and multi-instance INI profile detection
+- Health and USN journal status panel with optional Everything IPC responsiveness checks
+
+### Headless and Operations
+- `-ApplyPreset Recommended|Safe|Privacy|Performance|PowerUser -Restart -Silent` for automation
+- Portable ZIP bundle import/export containing INI and CSV data
+- JSON, YAML, and unsigned `.reg` settings exporters
+- Group Policy ADMX/ADML export and optional scheduled re-apply task registration
+- Rotating timestamped backups, recoverable INI/CSV history, validation, and health reports
 
 ## Installation
 
@@ -35,6 +46,15 @@ No installation required. Simply download and run:
 ```powershell
 powershell -ExecutionPolicy Bypass -File EverythingSettingsManager.ps1
 ```
+
+Headless automation example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File EverythingSettingsManager.ps1 `
+  -ApplyPreset Recommended -Restart -Silent
+```
+
+Live filter previews use `es.exe` when it is installed alongside Everything or on `PATH`; all other settings and CSV workflows work without that optional client.
 
 ## Requirements
 
@@ -85,7 +105,7 @@ The most important settings to prevent full rescans on startup:
 ### Recommended Workflow
 1. Launch the tool
 2. Review settings with "Critical" and "High" impact badges
-3. Click "Apply Recommended" for optimal configuration
+3. Choose the Recommended preset and click "Apply Preset" for a balanced configuration
 4. Create a backup before saving
 5. Save and restart Everything
 
@@ -97,6 +117,7 @@ The most important settings to prevent full rescans on startup:
 | Filters CSV | `%APPDATA%\Everything\Filters.csv` or `Filters-1_5a.csv` |
 | Bookmarks CSV | `%APPDATA%\Everything\Bookmarks.csv` or `Bookmarks-1_5a.csv` |
 | Backups | `%APPDATA%\Everything\Backups\` |
+| CSV undo history | `%APPDATA%\Everything\EverythingSettingsManager.csv-history.jsonl` |
 
 ## Contributing
 

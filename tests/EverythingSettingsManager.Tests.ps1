@@ -60,6 +60,18 @@ try {
     Assert-True ($scrubbed.Count -eq 1 -and $scrubbed[0].Search -eq 'keep') 'History scrubber should remove regex matches.'
     $pinned = Set-RunHistoryPinned -Rows @([pscustomobject]@{ Name = 'keep' }) -Names @('keep')
     Assert-True ($pinned[0].Pinned -eq '1') 'Run history pinning should add the Pinned field.'
+    $pruned = @(Prune-RunHistoryRows -Rows @([pscustomobject]@{ Name = 'pinned'; Pinned = '1' }, [pscustomobject]@{ Name = 'a'; Pinned = '0' }, [pscustomobject]@{ Name = 'b'; Pinned = '0' }) -Maximum 1)
+    Assert-True ($pruned.Count -eq 1 -and $pruned[0].Name -eq 'pinned') 'Run history pruning should preserve pinned rows.'
+    $exclusions = @(Get-ExclusionSummary -Settings @{ exclude_folders = "C:\\A;C:\\B`r`nC:\\C" })
+    Assert-True ($exclusions[0].Count -eq 3) 'Exclusion summaries should split semicolon and newline-delimited paths.'
+    Add-CsvHistoryEntry -Path $Script:CsvHistoryPath -Operation 'test' -Before @([pscustomobject]@{ Name = 'before' }) -After @([pscustomobject]@{ Name = 'after' }) | Out-Null
+    Assert-True ((@(Read-CsvHistoryEntries -Path $Script:CsvHistoryPath)).Count -eq 1) 'CSV undo history should persist a JSONL delta entry.'
+    $historyCsv = Join-Path $root 'History.csv'
+    @([pscustomobject]@{ Name = 'after' }) | Export-Csv -LiteralPath $historyCsv -NoTypeInformation -Encoding UTF8
+    Invoke-CsvHistoryUndo -CsvPath $historyCsv -HistoryPath $Script:CsvHistoryPath | Out-Null
+    Assert-True ((Read-CsvFile -Path $historyCsv)[0].Name -eq 'before') 'CSV history undo should restore the prior snapshot.'
+    Invoke-CsvHistoryRedo -CsvPath $historyCsv -HistoryPath $Script:CsvHistoryPath | Out-Null
+    Assert-True ((Read-CsvFile -Path $historyCsv)[0].Name -eq 'after') 'CSV history redo should restore the undone snapshot.'
     $jsonPath = Sync-BookmarksJson -CsvPath (Join-Path $root 'Bookmarks.csv') -Rows @([pscustomobject]@{ Name = 'Example'; Search = 'ext:txt' })
     Assert-True (Test-Path -LiteralPath $jsonPath) 'Bookmark JSON synchronization should create a sidecar.'
 
@@ -73,6 +85,11 @@ try {
     $admxRoot = Join-Path $root 'Policy'
     $admxPath = Export-EverythingAdmx -OutputPath $admxRoot
     Assert-True ((Test-Path -LiteralPath $admxPath) -and (Test-Path -LiteralPath (Join-Path $admxRoot 'en-US\EverythingSettingsManager.adml'))) 'ADMX export should create both language-neutral and en-US files.'
+    foreach ($extension in @('yaml', 'reg')) {
+        $exportPath = Join-Path $root ("settings.$extension")
+        Export-SettingsSnapshot -Path $exportPath -Settings $settings -IniFilePath $iniPath | Out-Null
+        Assert-True (Test-Path -LiteralPath $exportPath) "Settings export should support .$extension."
+    }
 
     $report = Get-EverythingHealthReport -SelectedIniPath $iniPath
     Assert-True ($report.iniPath -eq $iniPath) 'Health report should identify the selected INI.'
